@@ -1,0 +1,59 @@
+name: Sync Upstream and Build Dist
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 每天凌晨 0 点自动执行 (UTC 时间)
+  workflow_dispatch:      # 允许你在 GitHub 页面手动点击按钮执行
+
+jobs:
+  sync-and-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 赋予推送代码的权限
+
+    steps:
+      # 1. 检出你的仓库
+      - name: Checkout Your Fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. 配置原作者的仓库作为上游 (Upstream)
+      - name: Sync with Upstream
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 添加原作者仓库（这里以 Calcium-ion/new-api 为例）
+          git remote add upstream https://github.com/Calcium-ion/new-api.git
+          git fetch upstream
+          
+          # 合并原作者的 main 分支（如果原作者是 master 请改为 master）
+          # 使用 --allow-unrelated-histories 预防冲突
+          git merge upstream/main --no-edit || echo "No changes to merge or conflict occurred"
+
+      # 3. 安装 Node.js 并编译前端
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Frontend
+        run: |
+          cd web
+          npm install
+          npm run build
+          cd ..
+
+      # 4. 提交并推送到你的仓库
+      - name: Commit and Push
+        run: |
+          git add -f web/dist/
+          # 检查是否有文件变化
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: sync upstream and rebuild dist [skip ci]"
+            git push origin main
+          fi
