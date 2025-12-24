@@ -1,15 +1,15 @@
-name: Sync Upstream and Build Dist
+name: Sync Upstream and Build with Bun
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 每天凌晨 0 点自动执行 (UTC 时间)
-  workflow_dispatch:      # 允许你在 GitHub 页面手动点击按钮执行
+    - cron: '0 0 * * *' # 每天凌晨同步一次
+  workflow_dispatch:      # 支持点击按钮手动触发
 
 jobs:
   sync-and-build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 赋予推送代码的权限
+      contents: write
 
     steps:
       # 1. 检出你的仓库
@@ -19,41 +19,45 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2. 配置原作者的仓库作为上游 (Upstream)
+      # 2. 同步原作者代码
       - name: Sync with Upstream
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 添加原作者仓库（这里以 Calcium-ion/new-api 为例）
+          # 添加原作者仓库作为 upstream
           git remote add upstream https://github.com/Calcium-ion/new-api.git
           git fetch upstream
           
-          # 合并原作者的 main 分支（如果原作者是 master 请改为 master）
-          # 使用 --allow-unrelated-histories 预防冲突
-          git merge upstream/main --no-edit || echo "No changes to merge or conflict occurred"
+          # 尝试合并原作者的 main 分支（如果是 master 请自行修改）
+          # --allow-unrelated-histories 增加兼容性，-X theirs 优先保留原作者更新
+          git merge upstream/main --no-edit -X theirs || echo "Merge conflict or no changes"
 
-      # 3. 安装 Node.js 并编译前端
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      # 3. 安装 Bun 环境
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
         with:
-          node-version: '20'
+          bun-version: latest
 
-      - name: Build Frontend
+      # 4. 使用 Bun 编译前端
+      - name: Build Frontend via Bun
         run: |
           cd web
-          npm install
-          npm run build
+          bun install
+          # 这里假设 build 命令会生成到 dist 目录
+          bun run build
           cd ..
 
-      # 4. 提交并推送到你的仓库
+      # 5. 强制推送编译后的 dist 到你的仓库
       - name: Commit and Push
         run: |
+          # 强制添加 dist 目录，防止被 .gitignore 过滤
           git add -f web/dist/
-          # 检查是否有文件变化
+          
+          # 只有在有实际变化时才提交
           if git diff --staged --quiet; then
-            echo "No changes to commit"
+            echo "No changes to sync or build."
           else
-            git commit -m "chore: sync upstream and rebuild dist [skip ci]"
+            git commit -m "chore: sync upstream and rebuild dist using bun [skip ci]"
             git push origin main
           fi
